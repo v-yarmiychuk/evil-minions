@@ -1,97 +1,110 @@
 ## evil-minions
 
-![Evil Minions from the movie Despicable Me 2](https://vignette3.wikia.nocookie.net/despicableme/images/5/52/Screenshot_2016-02-10-01-09-16.jpg/revision/latest?cb=20161028002525)
+`evil-minions` — генератор нагрузки для [Salt](https://github.com/saltstack/salt).
+Он используется для тестирования масштабируемости Salt, [Uyuni](https://www.uyuni-project.org/)
+и [SUSE Manager](https://www.suse.com/products/suse-manager/).
 
-`evil-minions` is a load generator for [Salt](https://github.com/saltstack/salt). It is used at SUSE for Salt, [Uyuni](https://www.uyuni-project.org/) and [SUSE Manager](https://www.suse.com/products/suse-manager/) scalability testing.
+### Что это
 
-### Intro
+`evil-minions` подменяет запуск `salt-minion` и поднимает рядом набор
+симулированных minion-узлов ("evil" minions).
 
-`evil-minions` is a program that monkey-patches `salt-minion` in order to spawn a number of additional simulated "evil" minions alongside the original one.
+Эти minion-узлы:
 
-Evil minions will mimic the original by responding to commands from the Salt master by copying and minimally adapting responses from the original one. Responses are expected to be identical apart from a few details like the minion ID (it needs to be different in order for the Master to treat them as separate).
+- копируют поведение реального minion;
+- отвечают мастеру как отдельные узлы (с разными id);
+- работают достаточно легко, чтобы запускать сотни и тысячи экземпляров.
 
-Evil minions are lightweight - hundreds can run on a modern x86 core.
+### Установка
 
-### Installation
+#### SUSE (RPM)
 
-[sumaform](https://github.com/moio/sumaform) users: follow [sumaform-specific instructions](https://github.com/moio/sumaform/blob/master/README_ADVANCED.md#evil-minions-load-generator)
-
-SUSE distros: install via RPM package
-```
-# replace openSUSE_Leap_15.0 below with a different distribution if needed
+```bash
+# при необходимости замените openSUSE_Leap_15.0 на нужный дистрибутив
 zypper addrepo https://download.opensuse.org/repositories/systemsmanagement:/sumaform:/tools/openSUSE_Leap_15.0/systemsmanagement:sumaform:tools.repo
 zypper install evil-minions
 ```
 
-Other distros: run from source checkout
-```
+#### Debian/Ubuntu и другие дистрибутивы (из исходников)
+
+```bash
 git clone https://github.com/moio/evil-minions.git
 cd evil-minions
-# install Python deps (Debian example, avoids PEP 668 issues)
-apt-get install -y python3-msgpack python3-zmq python3-tornado
 
-mkdir -p /etc/systemd/system/salt-minion.service.d
-cp override.conf /etc/systemd/system/salt-minion.service.d
-systemctl daemon-reload
-systemctl restart salt-minion
+# пример зависимостей для Debian (без system-wide pip, совместимо с PEP 668)
+sudo apt-get install -y python3-msgpack python3-zmq python3-tornado
 ```
 
-When using Salt onedir packages, run `evil-minions` with Salt's bundled Python
-and set a working directory where the `evilminions/` package is available.
-For example:
+### Настройка systemd
 
+Создайте drop-in для `salt-minion` и используйте `override.conf` из репозитория:
+
+```bash
+sudo mkdir -p /etc/systemd/system/salt-minion.service.d
+sudo cp override.conf /etc/systemd/system/salt-minion.service.d/override.conf
+sudo systemctl daemon-reload
+sudo systemctl restart salt-minion
 ```
+
+Для Salt onedir (например, `/opt/saltstack/salt`) рекомендуется запуск через
+встроенный Python и рабочую директорию проекта:
+
+```ini
 [Service]
 ExecStart=
 ExecStart=/opt/saltstack/salt/bin/python3.10 /home/user/evil-minions/evil-minions --count=10 --ramp-up-delay=0 --slowdown-factor=0.0
 WorkingDirectory=/home/user/evil-minions
 ```
 
-### Usage
+### Использование
 
-Starting salt-minion will automatically spawn any configured evil minions (10 by default). `systemd` is used in order to work correctly in case the minion service is restarted.
+После запуска `salt-minion` автоматически поднимаются evil minions
+(`--count=10` по умолчанию).
 
-Every time the original minion receives and responds to a command, the command itself and the responses are "learned" by evil minions which will subsequently be able to respond to the same command. In practice, issuing the same command to all minions will work, eg.
+Базовая проверка:
 
-`salt '*' test.ping`
+```bash
+salt '*' test.ping
+salt 'evil-*' test.ping
+```
 
-evil minions will wait if presented with a command they have not learnt yet from the original minion.
+Если evil minion получил незнакомую команду, он ждёт, пока реальный minion
+сначала выполнит её и "обучит" симуляцию.
 
-Several parameters can be changed via commandline options in `/etc/systemd/system/salt-minion.service.d/override.conf`.
+Параметры запуска задаются через `ExecStart` в файле:
 
-#### `--count` <number of evil minions>
+`/etc/systemd/system/salt-minion.service.d/override.conf`
 
-The number of evil minions can can be changed via the `--count` commandline switch.
+### Основные параметры
 
-Simulating minions is not very resource intensive:
- - each evil-minon consumes ~2 MB of main memory, so thousands can be fit on a modern server
- - ~1000 evil-minions can be simulated at full speed (or near full speed) on one modern x86_64 core (circa 2018)
-   - this means that a hypervisor vCPU, typically mapped to one HyperThread, will be able to support hundreds of evil minions
+#### `--count`
 
-`evil-minions` combines [multiprocessing](https://docs.python.org/3.4/library/multiprocessing.html) and [Tornado](https://www.tornadoweb.org/en/stable/) to fully utilize available CPUs.
+Количество симулированных minion-узлов.
 
-#### `--slowdown-factor` <number>
+#### `--ramp-up-delay`
 
-By default, evil minions will respond as fast as possible, which might not be appropriate depending on the objectives of your simulation. To reproduce delays observed by the original minion from which the dump was taken, use the `--slowdown-factor` switch:
- - `0.0`, the default value, makes evil minions respond as fast as possible
- - `1.0` makes `evil-minion` introduce delays to match the response times of the original minion
- - `2.0` makes `evil-minion` react twice as slow as the original minion
- - `0.5` makes `evil-minion` react twice as fast as the original minion
+Задержка (в секундах) между запуском соседних evil minions.
+Полезно для плавного старта при большой нагрузке.
 
-#### `--random-slowdown-factor` <number>
+#### `--slowdown-factor`
 
-By setting the `random-slowdown-factor` value, the evil minions will respond using the user defined `slowdown-factor` value plus a random extra delay expressed as a percentage of the original time, for example:
- - with a `slowdown-factor` of `1.0` and a `random-slowdown-factor` of `0.2`, the evil-minions will reply with a slowdown-factor in the range of `1.0` and `1.2`. This value it's calculated per-evil-minion and is constant throughout the whole execution.
+Коэффициент замедления ответов:
 
-The default value of `--random-slowdown-factor` parameter is 0.
-For more information, see `--slowdown-factor` section above.
+- `0.0` — максимально быстро;
+- `1.0` — примерно как исходный minion;
+- `2.0` — в 2 раза медленнее;
+- `0.5` — в 2 раза быстрее.
 
-#### Other parameters
+#### `--random-slowdown-factor`
 
-Please, use `evil-minions --help` to get the detailed list.
+Добавляет случайный разброс к `slowdown-factor`.
+Например, при `slowdown-factor=1.0` и `random-slowdown-factor=0.2`
+каждый evil minion получит постоянный коэффициент в диапазоне `1.0..1.2`.
 
-### Known limitations
- - only the ZeroMQ transport is supported
- - minion targeting currently supports `glob` and exact minion ids; advanced target types are not yet supported
- - some Salt features are not faithfully reproduced: `mine` events, `beacon` events, and `state.sls`'s `concurrent` option
- - some Uyuni features are not currently supported: Action Chains
+### Ограничения
+
+- поддерживается только транспорт ZeroMQ;
+- таргетинг minion поддерживает `glob` (например, `evil-*`) и точные id;
+- часть возможностей Salt воспроизводится не полностью (`mine`, `beacon`,
+  `state.sls` с `concurrent`);
+- часть возможностей Uyuni не поддерживается (например, Action Chains).
