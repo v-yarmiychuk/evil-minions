@@ -1,6 +1,7 @@
 '''Implements one evil minion'''
 
 from distutils.dir_util import mkpath
+import fnmatch
 import hashlib
 import logging
 import os
@@ -10,7 +11,7 @@ from uuid import UUID, uuid5
 import tornado.gen
 import zmq
 
-import salt.transport.client
+import salt.channel.client
 
 from evilminions.utils import replace_recursively, fun_call_id
 
@@ -84,10 +85,10 @@ class HydraHead(object):
         self.log.info("HydraHead %s started", self.opts['id'])
 
         factory_kwargs = {'timeout': 60, 'safe': True, 'io_loop': self.io_loop}
-        pub_channel = salt.transport.client.AsyncPubChannel.factory(self.opts, **factory_kwargs)
+        pub_channel = salt.channel.client.AsyncPubChannel.factory(self.opts, **factory_kwargs)
         self.tok = pub_channel.auth.gen_token(b'salt')
         yield pub_channel.connect()
-        self.req_channel = salt.transport.client.AsyncReqChannel.factory(self.opts, **factory_kwargs)
+        self.req_channel = salt.channel.client.AsyncReqChannel.factory(self.opts, **factory_kwargs)
 
         pub_channel.on_recv(self.mimic)
         yield self.mimic({'load': {'fun': None, 'arg': None, 'tgt': [self.minion_id],
@@ -101,9 +102,14 @@ class HydraHead(object):
         tgt = load['tgt']
         tgt_type = load['tgt_type']
 
-        if tgt != self.minion_id and (
-            (tgt_type == 'glob' and tgt != '*') or
-            (tgt_type == 'list' and self.minion_id not in tgt)):
+        if tgt_type == 'glob':
+            is_targeted = fnmatch.fnmatch(self.minion_id, tgt)
+        elif tgt_type == 'list':
+            is_targeted = self.minion_id in tgt
+        else:
+            is_targeted = tgt == self.minion_id
+
+        if not is_targeted:
             # ignore call that targets a different minion
             return
 

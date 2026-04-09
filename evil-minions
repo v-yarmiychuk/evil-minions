@@ -8,12 +8,21 @@ and responding in the same way.
 '''
 
 import argparse
-import distutils.spawn
 import logging
-from multiprocessing import Process, cpu_count, Semaphore
+import os
+import shutil
 import sys
 
-import salt.log
+# Salt onedir packages ship their own Python; re-exec into it when needed.
+if not os.environ.get("EVIL_MINIONS_BOOTSTRAPPED"):
+    try:
+        import salt  # noqa: F401
+    except ImportError:
+        onedir_python = "/opt/saltstack/salt/bin/python3.10"
+        if os.path.exists(onedir_python):
+            os.environ["EVIL_MINIONS_BOOTSTRAPPED"] = "1"
+            os.execv(onedir_python, [onedir_python, os.path.abspath(__file__), *sys.argv[1:]])
+from multiprocessing import Process, cpu_count, Semaphore
 
 from evilminions.proxy import start_proxy
 from evilminions.vampire import Vampire
@@ -42,7 +51,7 @@ def main():
     args, remaining_args = parser.parse_known_args()
 
     # set up logging
-    salt.log.setup_console_logger(log_level='debug')
+    logging.basicConfig(level=logging.DEBUG)
     log = logging.getLogger(__name__)
     log.debug("Starting evil-minions, setting up infrastructure...")
 
@@ -79,7 +88,7 @@ def main():
 
     # restore salt-minion's orignal command line args and launch it
     sys.argv = [sys.argv[0]] + remaining_args
-    salt_minion_executable = distutils.spawn.find_executable('salt-minion')
+    salt_minion_executable = shutil.which('salt-minion')
     exec(compile(open(salt_minion_executable).read(), salt_minion_executable, 'exec'))
 
 def minion_chunks(count, processes):

@@ -1,1 +1,3 @@
 lsync.conf
+__pycache__/
+evilminions/__pycache__/

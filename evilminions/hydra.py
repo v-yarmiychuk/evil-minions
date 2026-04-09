@@ -4,6 +4,8 @@ import logging
 
 import tornado.gen
 import zmq
+import zmq.eventloop.ioloop
+import zmq.eventloop.zmqstream
 
 import salt.config
 import salt.loader
@@ -14,10 +16,6 @@ import random
 from evilminions.hydrahead import HydraHead
 from evilminions.utils import fun_call_id
 
-# HACK: turn the trace function into a no-op
-# this almost doubles evil-minion's performance
-salt.log.mixins.LoggingTraceMixIn.trace = lambda self, msg, *args, **kwargs: None
-
 class Hydra(object):
     '''Spawns HydraHeads, listens for messages coming from the Vampire.'''
     def __init__(self, hydra_number):
@@ -25,7 +23,6 @@ class Hydra(object):
         self.current_reactions = {}
         self.reactions = {}
         self.last_time = None
-        self.serial = salt.payload.Serial({})
         self.log = None
 
     def start(self, hydra_count, chunk, prefix, offset,
@@ -79,7 +76,7 @@ class Hydra(object):
         '''Called whenever a message from Vampire is received.
         Updates the internal self.reactions hash to contain reactions that will be mimicked'''
         for packed_event in packed_events:
-            event = self.serial.loads(packed_event)
+            event = salt.payload.loads(packed_event)
 
             load = event['load']
             socket = event['header']['socket']

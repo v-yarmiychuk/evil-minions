@@ -23,14 +23,28 @@ zypper addrepo https://download.opensuse.org/repositories/systemsmanagement:/sum
 zypper install evil-minions
 ```
 
-Other distros: install via pip
+Other distros: run from source checkout
 ```
-git checkout https://github.com/moio/evil-minions.git
+git clone https://github.com/moio/evil-minions.git
 cd evil-minions
-pip install -r requirements.txt
+# install Python deps (Debian example, avoids PEP 668 issues)
+apt-get install -y python3-msgpack python3-zmq python3-tornado
 
 mkdir -p /etc/systemd/system/salt-minion.service.d
 cp override.conf /etc/systemd/system/salt-minion.service.d
+systemctl daemon-reload
+systemctl restart salt-minion
+```
+
+When using Salt onedir packages, run `evil-minions` with Salt's bundled Python
+and set a working directory where the `evilminions/` package is available.
+For example:
+
+```
+[Service]
+ExecStart=
+ExecStart=/opt/saltstack/salt/bin/python3.10 /home/user/evil-minions/evil-minions --count=10 --ramp-up-delay=0 --slowdown-factor=0.0
+WorkingDirectory=/home/user/evil-minions
 ```
 
 ### Usage
@@ -78,6 +92,6 @@ Please, use `evil-minions --help` to get the detailed list.
 
 ### Known limitations
  - only the ZeroMQ transport is supported
- - only `*` and exact minion id targeting are supported at the moment
+ - minion targeting currently supports `glob` and exact minion ids; advanced target types are not yet supported
  - some Salt features are not faithfully reproduced: `mine` events, `beacon` events, and `state.sls`'s `concurrent` option
  - some Uyuni features are not currently supported: Action Chains
