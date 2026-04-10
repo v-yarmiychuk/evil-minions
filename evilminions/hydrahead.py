@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import socket
+import time
 from uuid import UUID, uuid5
 
 import tornado.gen
@@ -89,10 +90,26 @@ class HydraHead(object):
         self.tok = pub_channel.auth.gen_token(b'salt')
         yield pub_channel.connect()
         self.req_channel = salt.channel.client.AsyncReqChannel.factory(self.opts, **factory_kwargs)
+        yield self.emit_start_event()
 
         pub_channel.on_recv(self.mimic)
         yield self.mimic({'load': {'fun': None, 'arg': None, 'tgt': [self.minion_id],
                                    'tgt_type': 'list', 'load': None, 'jid': None}})
+
+    @tornado.gen.coroutine
+    def emit_start_event(self):
+        '''Emits a Salt-compatible minion start event for this evil minion'''
+        tag = 'salt/minion/{}/start'.format(self.minion_id)
+        ts = int(time.time())
+        request = {
+            'cmd': '_minion_event',
+            'id': self.minion_id,
+            'pretag': None,
+            'data': 'Minion {} started at {}'.format(self.minion_id, time.strftime('%a %b %d %H:%M:%S %Y')),
+            'tag': tag,
+            'ts': ts,
+        }
+        yield self.req_channel.send(request, timeout=60)
 
     @tornado.gen.coroutine
     def mimic(self, load):
