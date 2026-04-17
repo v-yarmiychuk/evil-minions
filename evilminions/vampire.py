@@ -101,6 +101,14 @@ def _dumping_crypted_transfer_decode_dictentry(self, load, **kwargs):
 
 def _dumping_on_recv(self, callback):
     '''Dumps a PUB ZeroMQ message then handles it'''
+    if callback is None:
+        try:
+            return self._original_on_recv(None)
+        except OSError as exc:
+            if "Stream is closed" in str(exc):
+                return None
+            raise
+
     # Version-agnostic callback:
     # - If Salt calls callback() synchronously, we still run async callbacks.
     # - If Salt awaits callback(), returning None is still valid.
@@ -111,4 +119,9 @@ def _dumping_on_recv(self, callback):
             async def _await_result():
                 await result
             tornado.ioloop.IOLoop.current().spawn_callback(_await_result)
-    return self._original_on_recv(_logging_callback)
+    try:
+        return self._original_on_recv(_logging_callback)
+    except OSError as exc:
+        if "Stream is closed" in str(exc):
+            return None
+        raise

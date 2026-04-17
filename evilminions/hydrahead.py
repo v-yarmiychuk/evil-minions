@@ -264,14 +264,13 @@ class HydraHead(object):
         self.tok = self.pub_channel.auth.gen_token(b'salt')
         yield self.pub_channel.connect()
         self.req_channel = salt.channel.client.AsyncReqChannel.factory(self.opts, **factory_kwargs)
-        # Warm up master minion_data_cache via regular _pillar request.
-        # Presence in Salt uses cached minion grains + current socket IPs.
-        yield self.emit_pillar_cache_warmup()
-        yield self.emit_start_event()
-
         self.pub_channel.on_recv(self.mimic)
+        # Do not block readiness on cache warmup/start event; otherwise cold starts
+        # scale almost linearly with minion count.
+        self.io_loop.spawn_callback(self.emit_pillar_cache_warmup)
+        self.io_loop.spawn_callback(self.emit_start_event)
         yield self.mimic({'load': {'fun': None, 'arg': None, 'tgt': [self.minion_id],
-                                   'tgt_type': 'list', 'load': None, 'jid': None}})
+                                  'tgt_type': 'list', 'load': None, 'jid': None}})
 
     @tornado.gen.coroutine
     def emit_pillar_cache_warmup(self):
@@ -445,8 +444,8 @@ class HydraHead(object):
                 method = header['method']
                 kwargs = header['kwargs']
                 if request.get('cmd') == '_return':
-                    if self._should_drop_duplicate_return(request):
-                        continue
+                    yield self._send_return(request, timeout=kwargs.get('timeout', 60))
+                    continue
                 yield getattr(self.req_channel, method)(request, **kwargs)
         finally:
             try:
@@ -487,6 +486,13 @@ class HydraHead(object):
             self._seen_returns.popitem(last=False)
 
     @tornado.gen.coroutine
+    def _send_return(self, request, timeout=60):
+        '''Send _return through a single dedup-aware path.'''
+        if request.get('cmd') == '_return' and self._should_drop_duplicate_return(request):
+            return
+        yield self.req_channel.send(request, timeout=timeout)
+
+    @tornado.gen.coroutine
     def react_no_reaction(self, load):
         '''Returns an explicit error if no baseline reaction is available yet'''
         fun = load.get('fun')
@@ -500,7 +506,7 @@ class HydraHead(object):
             'return': "evil-minions: no real-minion baseline response for '{}' yet; run the command once against a real minion and retry".format(fun),
             'success': False,
         }
-        yield self.req_channel.send(request, timeout=60)
+        yield self._send_return(request, timeout=60)
 
     @tornado.gen.coroutine
     def react_to_ping(self, load):
@@ -515,7 +521,7 @@ class HydraHead(object):
             'return': True,
             'success': True,
         }
-        yield self.req_channel.send(request, timeout=60)
+        yield self._send_return(request, timeout=60)
 
     @tornado.gen.coroutine
     def react_to_grains_items(self, load):
@@ -529,7 +535,7 @@ class HydraHead(object):
             'return': self.grains_profile,
             'success': True,
         }
-        yield self.req_channel.send(request, timeout=60)
+        yield self._send_return(request, timeout=60)
 
     @tornado.gen.coroutine
     def react_to_grains_item(self, load):
@@ -547,7 +553,7 @@ class HydraHead(object):
             'return': result,
             'success': True,
         }
-        yield self.req_channel.send(request, timeout=60)
+        yield self._send_return(request, timeout=60)
 
     @tornado.gen.coroutine
     def react_to_grains_get(self, load):
@@ -565,7 +571,7 @@ class HydraHead(object):
             'return': value,
             'success': True,
         }
-        yield self.req_channel.send(request, timeout=60)
+        yield self._send_return(request, timeout=60)
 
     def _grains_get_value(self, key, default=''):
         if key is None:
@@ -594,7 +600,7 @@ class HydraHead(object):
             'return': ret,
             'success': True,
         }
-        yield self.req_channel.send(request, timeout=60)
+        yield self._send_return(request, timeout=60)
 
     @tornado.gen.coroutine
     def react_to_running(self, load):
@@ -609,5 +615,5 @@ class HydraHead(object):
             'return': self.current_jobs,
             'success': True,
         }
-        yield self.req_channel.send(request, timeout=60)
+        yield self._send_return(request, timeout=60)
 

@@ -61,23 +61,10 @@ def main():
     parser = argparse.ArgumentParser(description='Starts a salt-minion and many evil minions that mimic it.')
     parser.add_argument('--count', dest='count', type=int, default=100,
                        help='number of evil minions (default: 100)')
-    parser.add_argument('--id-prefix', dest='prefix', default='evil',
-                       help='minion id prefix for evil minions. (default: evil)')
-    parser.add_argument('--id-offset', dest='offset', type=int, default=0,
-                       help='minion id counter offset for evil minions. (default: 0)')
-    parser.add_argument('--ramp-up-delay', dest='ramp_up_delay', type=int, default=0,
-                       help='time between evil minion starts in seconds (default: 0)')
-    parser.add_argument('--slowdown-factor', dest='slowdown_factor', type=float, default=0.0,
-                       help='slow down evil minions (default is 0.0 "as fast as possible", ' +
-                       '1.0 is "as fast as the original")')
-    parser.add_argument('--random-slowdown-factor', dest='random_slowdown_factor', type=float, default=0.0,
-                       help='a random extra delay expressed as a percentage of the original time (default: 0.0)')
+    parser.add_argument('--ramp-up-delay', dest='ramp_up_delay', type=float, default=0.0,
+                       help='time between evil minion starts in seconds, supports fractions (default: 0.0)')
     parser.add_argument('--processes', dest='processes', type=int, default=None,
                        help='Hydra worker process count (default: from --count)')
-    parser.add_argument('--mimic-poll', dest='mimic_poll', type=float, default=None,
-                       help='mimic() sleep while waiting for baseline (default: from --count)')
-    parser.add_argument('--keysize', dest='keysize', type=int, default=2048,
-                       help='size of Salt keys generated for each evil minion (default: 2048)')
     parser.add_argument('--log-level', dest='log_level', default='INFO',
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                        help='log level (default: INFO)')
@@ -92,7 +79,7 @@ def main():
     log.debug("Starting evil-minions, setting up infrastructure...")
 
     proc_count = hydra_process_count(args.count, args.processes)
-    mimic_poll = mimic_poll_interval(args.count, args.mimic_poll)
+    mimic_poll = mimic_poll_interval(args.count, None)
     log.debug("count=%d hydra_workers=%d mimic_poll=%.3fs", args.count, proc_count, mimic_poll)
 
     # set up Hydras, one per process. Hydras are so called because they have
@@ -102,12 +89,10 @@ def main():
     hydras = [Process(target=Hydra(i).start, kwargs={
         'hydra_count': len(chunks),
         'chunk': chunk,
-        'prefix': args.prefix,
-        'offset': args.offset,
         'ramp_up_delay': args.ramp_up_delay,
-        'slowdown_factor': args.slowdown_factor,
-        'random_slowdown_factor': args.random_slowdown_factor,
-        'keysize': args.keysize,
+        'slowdown_factor': 0.0,
+        'random_slowdown_factor': 0.0,
+        'keysize': 2048,
         'mimic_poll_interval': mimic_poll,
         'semaphore': semaphore
     }) for i, chunk in enumerate(chunks)]

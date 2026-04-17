@@ -34,11 +34,10 @@ class Hydra(object):
         self._profile_add = 17
         self._assigned_minion_ids = set()
 
-    def start(self, hydra_count, chunk, prefix, offset,
+    def start(self, hydra_count, chunk,
               ramp_up_delay, slowdown_factor, random_slowdown_factor, keysize,
               mimic_poll_interval, semaphore):
         '''Per-process entry point (one per Hydra)'''
-
         setup_worker_logging()
         # set up logging
         self.log = logging.getLogger(__name__)
@@ -65,19 +64,18 @@ class Hydra(object):
         first_head_number = chunk[0] if chunk else 0
         delays = [ramp_up_delay * ((head_number - first_head_number) * hydra_count + self.hydra_number)
                   for head_number in chunk]
-        offset_head_numbers = [head_number + offset for head_number in chunk]
-        if self._profiles and offset_head_numbers and (max(offset_head_numbers) + 1) > len(self._profiles):
+        if self._profiles and chunk and (max(chunk) + 1) > len(self._profiles):
             self.log.warning(
                 "Profiles count (%d) is lower than requested evil minions (%d); profile reuse is expected",
-                len(self._profiles), max(offset_head_numbers) + 1
+                len(self._profiles), max(chunk) + 1
             )
 
         slowdown_factors = self._resolve_slowdown_factors(slowdown_factor, random_slowdown_factor, len(chunk))
         heads = []
         for i in range(len(chunk)):
-            generated_id = '{}-{}'.format(prefix, offset_head_numbers[i])
-            grains_profile = self._pick_grains_profile(offset_head_numbers[i])
-            minion_id = self._resolve_minion_id(offset_head_numbers[i], generated_id, grains_profile)
+            generated_id = 'evil-{}'.format(chunk[i])
+            grains_profile = self._pick_grains_profile(chunk[i])
+            minion_id = self._resolve_minion_id(chunk[i], generated_id, grains_profile)
             heads.append(
                 HydraHead(
                     minion_id, io_loop, keysize, opts, grains, delays[i],
