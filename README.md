@@ -1,10 +1,16 @@
 ## evil-minions
 
-Инструмент нагрузочного тестирования [Salt](https://github.com/saltstack/salt) в связке с [Uyuni](https://www.uyuni-project.org/) и [SUSE Manager](https://www.suse.com/products/suse-manager/).
+Инструмент нагрузочного тестирования [Salt](https://github.com/saltstack/salt)
+в связке с [Uyuni](https://www.uyuni-project.org/) и [SUSE
+Manager](https://www.suse.com/products/suse-manager/).
 
 ### Назначение
 
-Подменяется точка входа `salt-minion`: один реальный minion остаётся эталоном, дополнительно поднимается заданное число логических minion с префиксом id (по умолчанию `evil-*`). Для master они выглядят как отдельные узлы. Ответы на команды вне встроенных исключений воспроизводятся по заранее снятому с эталона трафику (baseline).
+Подменяется точка входа `salt-minion`: один реальный minion остаётся эталоном,
+дополнительно поднимается заданное число логических minion с префиксом id (по
+умолчанию `evil-*`). Для master они выглядят как отдельные узлы. Ответы на
+команды вне встроенных исключений воспроизводятся по заранее снятому с эталона
+трафику (baseline).
 
 ### Форк от upstream
 
@@ -22,64 +28,32 @@
 - интервал ожидания baseline в `mimic()`: из `--mimic-poll` либо авто от `--count`;
 - корректный выход из `mimic()` при стартовом вызове с `fun is None`.
 
-Upstream без этих изменений: `uyuni-project/evil-minions`.
+Upstream без этих изменений: https://github.com/uyuni-project/evil-minions.
 
 ### Установка
 
-**RPM (SUSE)** — при необходимости заменить URL репозитория под дистрибутив:
-
 ```bash
-zypper addrepo https://download.opensuse.org/repositories/systemsmanagement:/sumaform:/tools/openSUSE_Leap_15.0/systemsmanagement:sumaform:tools.repo
-zypper install evil-minions
-```
-
-**Исходники (Debian/Ubuntu и др.)**:
-
-```bash
+cd /opt/saltstack/
 git clone https://github.com/v-yarmiychuk/evil-minions.git
 cd evil-minions
-sudo apt-get install -y python3-msgpack python3-zmq python3-tornado
 ```
 
 ### systemd
 
 ```bash
-sudo mkdir -p /etc/systemd/system/salt-minion.service.d
-sudo cp override.conf /etc/systemd/system/salt-minion.service.d/override.conf
-# заменить /path/to/evil-minions на каталог установки
+# Из директории evil-minions
+sudo cp systemd/evil-minions.service /etc/systemd/system/
+sudo cp systemd/evil-minions.env /etc/
 sudo systemctl daemon-reload
-sudo systemctl restart salt-minion
+sudo systemctl disable --now salt-minion
+sudo systemctl enable --now evil-minions
 ```
 
-Пример `ExecStart` для onedir (путь к python укажите под вашу установку):
-
-```ini
-[Service]
-ExecStart=
-ExecStart=/opt/saltstack/salt/bin/python /path/to/evil-minions/evil-minions --count=100 --ramp-up-delay=0 --slowdown-factor=0.0 --log-level=INFO
-WorkingDirectory=/path/to/evil-minions
-```
-
-В репозитории `override.conf` содержит тот же шаблон; фактическое число minion задаётся в `ExecStart`. Справка по ключам: `evil-minions --help`.
-
-Рекомендуется добавить отдельный drop-in c обязательными переменными окружения
-для стабильных ключей и предсказуемого запуска:
-
-```ini
-# /etc/systemd/system/salt-minion.service.d/evil-minions-env.conf
-[Service]
-Environment=EVIL_MINIONS_PKI_BASE=/var/lib/evil-minions/pki
-Environment=EVIL_MINIONS_GRAINS_PROFILES=/opt/evil-minions/data/grains.json
-Environment=EVIL_MINIONS_REQUIRE_GRAINS_PROFILES=true
-Environment=EVIL_MINIONS_ID_SOURCE=profile
-Environment=EVIL_MINIONS_ENFORCE_UNIQUE_IDS=true
-```
-
-После добавления:
+Основные параметры службы могут быть изменены в файле `/etc/evil-minions.env`.
+После изменения файла перезапустите службу:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart salt-minion
+sudo systemctl restart evil-minions
 ```
 
 ### Параметры запуска
@@ -87,17 +61,14 @@ sudo systemctl restart salt-minion
 | Параметр | Назначение |
 |----------|------------|
 | `--count` | Число симулируемых minion (дефолт скрипта: 100). |
-| `--id-prefix`, `--id-offset` | Префикс и смещение id. |
 | `--ramp-up-delay` | Задержка между стартами соседних голов, сек. |
-| `--slowdown-factor` | Множитель задержек при проигрывании цепочки (0 — без замедления относительно записанных интервалов). |
-| `--random-slowdown-factor` | Случайная добавка к `slowdown-factor` (доля, 0–100). |
+замедления относительно записанных интервалов). |
 | `--processes` | Число процессов Hydra; иначе авто от `--count` и CPU. |
-| `--mimic-poll` | Интервал опроса baseline в `mimic()`, сек.; иначе авто от `--count`. |
-| `--keysize` | Размер ключей minion, бит (дефолт 2048). |
 | `--log-level` | `DEBUG` … `CRITICAL`, дефолт `INFO`. |
 
-По умолчанию PKI evil-minions хранится в постоянном каталоге `/var/lib/evil-minions/pki/<minion_id>`.
-При необходимости базовый путь можно переопределить переменной окружения `EVIL_MINIONS_PKI_BASE`.
+По умолчанию PKI evil-minions хранится в постоянном каталоге
+`/var/lib/evil-minions/pki/<minion_id>`. При необходимости базовый путь можно
+переопределить переменной окружения `EVIL_MINIONS_PKI_BASE`.
 
 Дедупликация `_return` включена по умолчанию и работает по паре `(minion_id, jid)`.
 Если `jid` пустой (`None`/`''`), дедупликация не применяется.
@@ -115,18 +86,21 @@ sudo systemctl restart salt-minion
 
 ```bash
 salt '*' test.ping
-salt 'evil-*' test.ping
 ```
 
-Команда без baseline у эталонного minion: ответ с ошибкой до первого успешного выполнения на реальном minion с тем же `fun`/аргументами.
+Команда без baseline у эталонного minion: ответ с ошибкой до первого успешного
+выполнения на реальном minion с тем же `fun`/аргументами.
 
 ### Troubleshooting: ключи и регистрация
 
 #### Симптомы
 
-- В логах master: `Authentication attempt from <minion_id> failed, the public keys did not match`.
-- В `salt-key -L` один и тот же minion может оказаться в конфликтных состояниях (например, после ручной чистки PKI на клиенте и старых ключей на мастере).
-- Синхронные `salt ...` иногда дают timeout под нагрузкой event bus, при этом async-джобы могут успешно возвращаться.
+- В логах master: `Authentication attempt from <minion_id> failed, the public
+  keys did not match`.
+- В `salt-key -L` один и тот же minion может оказаться в конфликтных состояниях
+  (например, после ручной чистки PKI на клиенте и старых ключей на мастере).
+- Синхронные `salt ...` иногда дают timeout под нагрузкой event bus, при этом
+  async-джобы могут успешно возвращаться.
 
 #### Важно понимать
 
@@ -135,30 +109,40 @@ salt 'evil-*' test.ping
 - Проблема обычно появляется после потери/очистки локального PKI у evil-minions
   или рассинхрона key-state на мастере.
 
-#### Безопасный сценарий восстановления key-state
+#### Сценарий восстановления key-state
 
-1) На evil-host (где запущен evil-minions):
+1) На evil-host (где запущен Evil Minions):
 
 ```bash
-sudo systemctl stop salt-minion
+sudo systemctl stop evil-minions
 # Чистить PKI только если действительно нужен полный ресинк ключей:
 sudo rm -rf /var/lib/evil-minions/pki/*
-sudo systemctl start salt-minion
 ```
 
-2) На Salt master (в контейнере, если master контейнеризирован):
+2) На Salt Master (в контейнере, если master контейнеризирован) **[ БУДУТ
+УДАЛЕНЫ ВСЕ КЛЮЧИ! ]**:
 
 ```bash
-docker exec -it <master_container> salt-key -L
-docker exec -it <master_container> salt-key -d 'evil-*' -y
-docker exec -it <master_container> salt-key -a 'evil-*' -y
+sudo salt-key -D -y
 ```
 
-3) Проверка:
+3) На хосте Evil Minions:
 
 ```bash
-docker exec -it <master_container> salt 'evil-*' test.ping --async
-docker exec -it <master_container> salt-run jobs.lookup_jid <jid>
+sudo systemctl start evil-minions
+```
+
+4) На хосте Salt Master:
+
+```bash
+sudo salt-key -A -y
+```
+
+3) Проверка на хосте Salt Master:
+
+```bash
+sudo salt '*' test.ping --async
+sudo salt-run jobs.lookup_jid <JID>
 ```
 
 ### Ограничения
@@ -167,4 +151,6 @@ docker exec -it <master_container> salt-run jobs.lookup_jid <jid>
 - Таргетинг: `glob`, список id, точное совпадение id; compound и прочее — не заявлено.
 - Неполная эмуляция: `mine`, `beacon`, часть сценариев `state.sls` / concurrency.
 - Uyuni: без Action Chains и ряда специфичных функций.
-- Масштаб на одном хосте: рост `--count` линейно увеличивает число полноценных клиентских сессий (сеть, CPU, крипта). Для больших значений — несколько узлов или снижение `--count`.
+- Масштаб на одном хосте: рост `--count` линейно увеличивает число полноценных
+  клиентских сессий (сеть, CPU, крипта). Для больших значений — несколько узлов
+  или снижение `--count`.

@@ -1,0 +1,26 @@
+# This file is a part of Evil Minion.
+# Example service file.
+# #
+# Put into /etc/systemd/system/, than reload:
+#   systemctl daemon-reload
+# then DISABLE salt-minion and ENABLE THE EVIL:
+#   systemctl disable --now salt-minion && systemct enable --now evil-minions
+#
+
+[Unit]
+Description=The Evil Salt Minions
+Documentation=https://github.com/v-yarmiychuk/evil-minions
+After=network.target salt-master.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+WorkingDirectory=/opt/saltstack/evil-minions/
+EnvironmentFile=/etc/evil-minions.env
+ExecStart=/opt/saltstack/salt/bin/python3 evil-minions --count="${COUNT}" --log-level="${LOG_LEVEL}"
+LimitNOFILE=infinity
+TasksMax=infinity
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target
