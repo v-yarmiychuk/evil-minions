@@ -28,11 +28,12 @@ Manager](https://www.suse.com/products/suse-manager/).
 - интервал ожидания baseline в `mimic()`: из `--mimic-poll` либо авто от `--count`;
 - корректный выход из `mimic()` при стартовом вызове с `fun is None`.
 
-Upstream без этих изменений: `uyuni-project/evil-minions`.
+Upstream без этих изменений: https://github.com/uyuni-project/evil-minions.
 
 ### Установка
 
 ```bash
+cd /opt/saltstack/
 git clone https://github.com/v-yarmiychuk/evil-minions.git
 cd evil-minions
 ```
@@ -40,42 +41,19 @@ cd evil-minions
 ### systemd
 
 ```bash
-sudo mkdir -p /etc/systemd/system/salt-minion.service.d
-sudo cp override.conf /etc/systemd/system/salt-minion.service.d/override.conf
-# заменить /path/to/evil-minions на каталог установки
+# Из директории evil-minions
+sudo cp systemd/evil-minions.service /etc/systemd/system/
+sudo cp systemd/evil-minions.env /etc/
 sudo systemctl daemon-reload
-sudo systemctl restart salt-minion
+sudo systemctl disable --now salt-minion
+sudo systemctl enable --now evil-minions
 ```
 
-Пример `ExecStart` для onedir (путь к python укажите под вашу установку):
-
-```ini
-[Service]
-ExecStart=
-ExecStart=/opt/saltstack/salt/bin/python /path/to/evil-minions/evil-minions --count=100 --ramp-up-delay=0 --log-level=INFO
-WorkingDirectory=/path/to/evil-minions
-```
-
-В репозитории `override.conf` содержит тот же шаблон; фактическое число minion задаётся в `ExecStart`. Справка по ключам: `evil-minions --help`.
-
-Рекомендуется добавить отдельный drop-in c обязательными переменными окружения
-для стабильных ключей и предсказуемого запуска:
-
-```ini
-# /etc/systemd/system/salt-minion.service.d/evil-minions-env.conf
-[Service]
-Environment=EVIL_MINIONS_PKI_BASE=/var/lib/evil-minions/pki
-Environment=EVIL_MINIONS_GRAINS_PROFILES=/opt/evil-minions/data/grains.json
-Environment=EVIL_MINIONS_REQUIRE_GRAINS_PROFILES=true
-Environment=EVIL_MINIONS_ID_SOURCE=profile
-Environment=EVIL_MINIONS_ENFORCE_UNIQUE_IDS=true
-```
-
-После добавления:
+Основные параметры службы могут быть изменены в файле `/etc/evil-minions.env`.
+После изменения файла перезапустите службу:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart salt-minion
+sudo systemctl restart evil-minions
 ```
 
 ### Параметры запуска
@@ -108,7 +86,6 @@ sudo systemctl restart salt-minion
 
 ```bash
 salt '*' test.ping
-salt 'evil-*' test.ping
 ```
 
 Команда без baseline у эталонного minion: ответ с ошибкой до первого успешного
@@ -132,30 +109,40 @@ salt 'evil-*' test.ping
 - Проблема обычно появляется после потери/очистки локального PKI у evil-minions
   или рассинхрона key-state на мастере.
 
-#### Безопасный сценарий восстановления key-state
+#### Сценарий восстановления key-state
 
-1) На evil-host (где запущен evil-minions):
+1) На evil-host (где запущен Evil Minions):
 
 ```bash
-sudo systemctl stop salt-minion
+sudo systemctl stop evil-minions
 # Чистить PKI только если действительно нужен полный ресинк ключей:
 sudo rm -rf /var/lib/evil-minions/pki/*
-sudo systemctl start salt-minion
 ```
 
-2) На Salt master (в контейнере, если master контейнеризирован):
+2) На Salt Master (в контейнере, если master контейнеризирован) **[ БУДУТ
+УДАЛЕНЫ ВСЕ КЛЮЧИ! ]**:
 
 ```bash
-docker exec -it <master_container> salt-key -L
-docker exec -it <master_container> salt-key -d 'evil-*' -y
-docker exec -it <master_container> salt-key -a 'evil-*' -y
+sudo salt-key -D -y
 ```
 
-3) Проверка:
+3) На хосте Evil Minions:
 
 ```bash
-docker exec -it <master_container> salt 'evil-*' test.ping --async
-docker exec -it <master_container> salt-run jobs.lookup_jid <jid>
+sudo systemctl start evil-minions
+```
+
+4) На хосте Salt Master:
+
+```bash
+sudo salt-key -A -y
+```
+
+3) Проверка на хосте Salt Master:
+
+```bash
+sudo salt '*' test.ping --async
+sudo salt-run jobs.lookup_jid <JID>
 ```
 
 ### Ограничения
